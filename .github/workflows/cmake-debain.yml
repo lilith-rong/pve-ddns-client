@@ -1,4 +1,4 @@
-name: CMake
+name: CMake-debain
 on:
   push:
     branches: [ main ]
