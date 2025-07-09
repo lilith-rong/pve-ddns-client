@@ -19,7 +19,7 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     strategy:
       matrix:
-        platform: [ubuntu-20.04, macos-11, windows-latest]
+        platform: [ubuntu-22.04, macos-14, windows-latest]
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -95,3 +95,53 @@ jobs:
           ${{github.workspace}}\build\${{env.BUILD_TYPE}}\pve-ddns-client.exe
           ${{github.workspace}}\build\*.yml
       if: runner.os == 'Windows'
+
+  build-debian:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+    env:
+      BUILD_TYPE: Release
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install build dependencies
+      run: |
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          build-essential cmake git curl unzip pkg-config
+
+    - name: Set short git commit SHA
+      id: vars
+      run: echo "COMMIT_SHORT_SHA=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+
+    - name: Check 3rdparty prebuilt cache
+      uses: actions/cache@v4
+      id: cache-debian
+      with:
+        path: 3rdparty/prebuilt
+        key: debian-bookworm-build-${{ hashFiles('3rdparty/build.sh') }}
+
+    - name: Prebuild 3rdparty
+      if: steps.cache-debian.outputs.cache-hit != 'true'
+      run: |
+        chmod +x 3rdparty/build.sh
+        ./3rdparty/build.sh
+
+    - name: Configure CMake
+      run: cmake -B build -DPVE_DDNS_CLIENT_VER="0.0.4_${{env.COMMIT_SHORT_SHA}}" -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build
+      run: cmake --build build --config ${{env.BUILD_TYPE}}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: debian-artifact
+        path: |
+          build/pve-ddns-client
+          build/*.yml
+
