@@ -1,0 +1,146 @@
+name: CMake
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # 原有的平台
+          - platform: ubuntu-22.04
+            os: ubuntu-22.04
+            artifact_name: ubuntu-22.04
+          - platform: macos-14
+            os: macos-14
+            artifact_name: macos-14
+          - platform: windows-latest
+            os: windows-latest
+            artifact_name: windows-latest
+          # 新增的Debian平台
+          - platform: debian-12
+            os: ubuntu-latest
+            container: debian:12
+            artifact_name: debian-12
+    
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    # Debian容器需要安装基础工具
+    - name: Install dependencies (Debian)
+      run: |
+        apt-get update
+        apt-get install -y \
+          build-essential \
+          cmake \
+          git \
+          pkg-config \
+          curl \
+          wget \
+          unzip \
+          ca-certificates
+      if: matrix.platform == 'debian-12'
+    
+    - name: Set short git commit SHA
+      id: vars
+      run: echo "COMMIT_SHORT_SHA=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+    
+    # Linux & macOS & Debian 缓存
+    - name: Check 3rdparty prebuilt cache (Linux & macOS & Debian)
+      id: cache-nix
+      uses: actions/cache@v4
+      with:
+        path: 3rdparty/prebuilt
+        key: ${{ matrix.platform }}-build-${{ hashFiles('3rdparty/build.sh') }}
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+    
+    # Windows 缓存
+    - name: Check 3rdparty prebuilt cache (Windows)
+      id: cache-win
+      uses: actions/cache@v4
+      with:
+        path: 3rdparty/prebuilt
+        key: ${{ matrix.platform }}-build-${{ hashFiles('3rdparty/build.bat') }}
+      if: runner.os == 'Windows'
+    
+    # 构建3rdparty库 (Linux & macOS & Debian)
+    - name: Prebuild 3rdparty libs (Linux & macOS & Debian)
+      run: |
+        chmod +x "${GITHUB_WORKSPACE}/3rdparty/build.sh"
+        "${GITHUB_WORKSPACE}/3rdparty/build.sh"
+      if: (runner.os == 'Linux' || runner.os == 'macOS') && steps.cache-nix.outputs.cache-hit != 'true'
+    
+    # 构建3rdparty库 (Windows)
+    - name: Prebuild 3rdparty libs (Windows)
+      run: |
+        cmd /k "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        .\build.bat
+      working-directory: .\3rdparty
+      if: runner.os == 'Windows' && steps.cache-win.outputs.cache-hit != 'true'
+    
+    # 配置CMake
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -DPVE_DDNS_CLIENT_VER="0.0.4_${{env.COMMIT_SHORT_SHA}}" -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+    
+    # 构建
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    
+    # 可选的测试步骤
+    # - name: Test
+    #   working-directory: ${{github.workspace}}/build
+    #   run: ctest -C ${{env.BUILD_TYPE}}
+    
+    # 上传构建产物 (Linux & macOS & Debian)
+    - name: Upload artifact (Linux & macOS & Debian)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-artifact
+        path: |
+          ${{github.workspace}}/build/pve-ddns-client
+          ${{github.workspace}}/build/*.yml
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+    
+    # 上传构建产物 (Windows)
+    - name: Upload artifact (Windows)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-artifact
+        path: |
+          ${{github.workspace}}\build\${{env.BUILD_TYPE}}\pve-ddns-client.exe
+          ${{github.workspace}}\build\*.yml
+      if: runner.os == 'Windows'
+
+  # 可选：创建发布包
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Display structure of downloaded files
+      run: ls -la artifacts/
+    
+    # 如果需要创建release，可以添加以下步骤
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ github.run_number }}
+        name: Release ${{ github.run_number }}
+        files: artifacts/*/*.yml
