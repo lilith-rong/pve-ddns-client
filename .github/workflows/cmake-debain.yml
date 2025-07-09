@@ -99,6 +99,49 @@ jobs:
     # - name: Test
     #   working-directory: ${{github.workspace}}/build
     #   run: ctest -C ${{env.BUILD_TYPE}}
+
+    # 提取Debian 容器当中的构建产物
+    - name: Extract build artifacts from container (Debian)
+      run: |
+        # 创建主机目录来存放提取的文件
+        mkdir -p ./extracted-artifacts
+        
+        # 从容器中复制构建产物到主机
+        # 注意：在GitHub Actions中，容器内的文件会自动挂载到主机
+        # 但我们需要确保文件路径正确且有适当权限
+        if [ -f "${{github.workspace}}/build/pve-ddns-client" ]; then
+          cp "${{github.workspace}}/build/pve-ddns-client" ./extracted-artifacts/
+          chmod +x ./extracted-artifacts/pve-ddns-client
+          echo "✓ pve-ddns-client extracted successfully"
+        else
+          echo "✗ pve-ddns-client not found in build directory"
+          echo "Build directory contents:"
+          ls -la "${{github.workspace}}/build/"
+          exit 1
+        fi
+        
+        # 复制yml文件（如果存在）
+        find "${{github.workspace}}/build/" -name "*.yml" -exec cp {} ./extracted-artifacts/ \; || echo "No yml files found"
+        
+        # 显示提取的文件
+        echo "Extracted artifacts:"
+        ls -la ./extracted-artifacts/
+        
+        # 验证文件完整性
+        echo "File details:"
+        file ./extracted-artifacts/* || echo "No files to check"
+      if: matrix.platform == 'debian-12'
+
+    # 上传构建产物 (Debian) - 从提取的文件上传
+    - name: Upload artifact (Debian)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-artifact
+        path: ./extracted-artifacts/*
+        if-no-files-found: error
+        retention-days: 30
+      if: matrix.platform == 'debian-12'
+
     
     # 上传构建产物 (Linux & macOS & Debian)
     - name: Upload artifact (Linux & macOS & Debian)
@@ -133,11 +176,3 @@ jobs:
     
     - name: Display structure of downloaded files
       run: ls -la artifacts/
-    
-    # 如果需要创建release，可以添加以下步骤
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ github.run_number }}
-        name: Release ${{ github.run_number }}
-        files: artifacts/*/*.yml
