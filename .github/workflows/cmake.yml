@@ -16,7 +16,7 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     strategy:
       matrix:
-        platform: [ubuntu-22.04, debian-12, macos-14, windows-latest]  # 添加 debian-12
+        platform: [ubuntu-22.04, macos-14, windows-latest]  # 添加 debian-12
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v4
