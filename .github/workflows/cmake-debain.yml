@@ -151,7 +151,7 @@ jobs:
         path: |
           ${{github.workspace}}/build/pve-ddns-client
           ${{github.workspace}}/build/*.yml
-      if: runner.os == 'Linux' || runner.os == 'macOS'
+      if: matrix.platform != 'debian-12' || runner.os == 'Linux' || runner.os == 'macOS' 
     
     # 上传构建产物 (Windows)
     - name: Upload artifact (Windows)
