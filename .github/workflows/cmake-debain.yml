@@ -27,7 +27,7 @@ jobs:
           # 新增的Debian平台
           - platform: debian-12
             os: ubuntu-latest
-            container: debian:12
+            container: buildpack-deps:bookworm
             artifact_name: debian-12
     
     runs-on: ${{ matrix.os }}
